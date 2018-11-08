@@ -1,0 +1,118 @@
+---
+title: "p8105_hw5_hy2580"
+author: "haokun yuan"
+date: "11/3/2018"
+output: github_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(purrr)
+library(rvest)
+```
+Problem 1
+
+This zip file contains data from a longitudinal study that included a control arm and an experimental arm. Data for each participant is included in a separate file, and file names include the subject ID and arm.
+
+Create a tidy dataframe containing data from all participants, including the subject ID, arm, and observations over time:
+
+Start with a dataframe containing all file names; the list.files function will help
+
+```{r}
+files = list.files("data")[-21]
+  
+
+read_file = function(x) {
+  file_path = str_c("./data/",x)
+  file = read_csv(file_path) %>% 
+    mutate(file_name = x)
+}
+
+study_data = map_df(files, read_file)
+
+```
+
+Iterate over file names and read in data for each subject using purrr::map and saving the result as a new variable in the dataframe
+Tidy the result; manipulate file names to include control arm and subject ID, make sure weekly observations are “tidy”, and do any other tidying that’s necessary
+```{r}
+tidy_data = study_data %>% 
+  select(file_name, everything()) %>% 
+  separate(file_name, into = c("arm","id"), sep = "_") %>% 
+  mutate(arm_id = str_replace(id,".csv", ""),
+         id = row_number()) %>% 
+  gather(week, observation, week_1:week_8) 
+  
+```
+
+Make a spaghetti plot showing observations on each subject over time, and comment on differences between groups.
+```{r}
+tidy_data %>% 
+  ggplot(aes(week, observation, group = id, color = arm)) + geom_line()
+```
+
+
+Problem 2
+
+The Washington Post has gathered data on homicides in 50 large U.S. cities and made the data available through a GitHub repository here. You can read their accompanying article here.
+
+Describe the raw data. Create a city_state variable (e.g. “Baltimore, MD”) and then summarize within cities to obtain the total number of homicides and the number of unsolved homicides (those for which the disposition is “Closed without arrest” or “Open/No arrest”).
+```{r}
+homicide_data = read_csv("./data/homicide-data.csv")
+```
+
+```{r}
+city_homicide = homicide_data %>%
+  group_by(city) %>%
+  count(disposition) %>% 
+  spread(key = disposition, value = n) %>% 
+  janitor::clean_names() %>% 
+  replace_na(list(closed_by_arrest = 0, closed_without_arrest = 0, open_no_arrest = 0 )) %>%
+  mutate(total_homicide = closed_by_arrest + closed_without_arrest + open_no_arrest, 
+         unsolved_homicide = closed_without_arrest + open_no_arrest) %>% 
+  select(total_homicide, unsolved_homicide)
+  
+ 
+```
+
+For the city of Baltimore, MD, use the prop.test function to estimate the proportion of homicides that are unsolved; save the output of prop.test as an R object, apply the broom::tidy to this object and pull the estimated proportion and confidence intervals from the resulting tidy dataframe.
+
+```{r}
+baltimore_homicide = city_homicide %>% 
+  filter(city == "Baltimore")
+
+prop.test(baltimore_homicide$unsolved_homicide,baltimore_homicide$total_homicide) %>%
+    broom::tidy() %>% 
+  select(estimate, conf.low, conf.high)
+```
+
+
+Now run prop.test for each of the cities in your dataset, and extract both the proportion of unsolved homicides and the confidence interval for each. Do this within a “tidy” pipeline, making use of purrr::map, purrr::map2, list columns and unnest as necessary to create a tidy dataframe with estimated proportions and CIs for each city.
+
+```{r}
+prop_test = function(x) {
+  city_h = city_homicide %>% 
+    filter(city == x)
+  
+  prop.test(city_h$unsolved_homicide,city_h$total_homicide) %>%
+    broom::tidy() %>% 
+    mutate(city = x) %>% 
+    select(city, estimate, conf.low, conf.high)
+    
+}
+
+all_city = map_df(city_homicide$city, prop_test)
+```
+
+```{r}
+all_city %>% 
+  ggplot(aes(fct_reorder(city, estimate),estimate)) +
+  geom_point() +
+  geom_errorbar(mapping = aes(x = fct_reorder(city, estimate) , ymin = conf.low, ymax = conf.high )) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1) ) 
+  
+
+```
+
+Create a plot that shows the estimates and CIs for each city – check out geom_errorbar for a way to add error bars based on the upper and lower limits. Organize cities according to the proportion of unsolved homicides.
+
