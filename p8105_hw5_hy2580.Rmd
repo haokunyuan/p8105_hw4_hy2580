@@ -5,7 +5,7 @@ date: "11/3/2018"
 output: github_document
 ---
 
-```{r setup, include = FALSE}
+```{r setup, message = FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(purrr)
@@ -19,7 +19,7 @@ Create a tidy dataframe containing data from all participants, including the sub
 
 Start with a dataframe containing all file names; the list.files function will help
 
-```{r}
+```{r, message = FALSE}
 files = list.files("data")[-21]
   
 
@@ -57,13 +57,15 @@ Problem 2
 The Washington Post has gathered data on homicides in 50 large U.S. cities and made the data available through a GitHub repository here. You can read their accompanying article here.
 
 Describe the raw data. Create a city_state variable (e.g. “Baltimore, MD”) and then summarize within cities to obtain the total number of homicides and the number of unsolved homicides (those for which the disposition is “Closed without arrest” or “Open/No arrest”).
-```{r}
-homicide_data = read_csv("./data/homicide-data.csv")
+```{r, message = FALSE}
+homicide_data = read_csv("./data/homicide-data.csv") %>% 
+  janitor::clean_names() %>% 
+  mutate(city_state = paste(city, state, sep = ", "))
 ```
 
 ```{r}
 city_homicide = homicide_data %>%
-  group_by(city) %>%
+  group_by(city_state) %>%
   count(disposition) %>% 
   spread(key = disposition, value = n) %>% 
   janitor::clean_names() %>% 
@@ -75,11 +77,31 @@ city_homicide = homicide_data %>%
  
 ```
 
+In city_homicide data, there are 51 observation for the three variable. However, the data were supposed only include 50 cities. 
+
+```{r}
+city_homicide %>% 
+  arrange(total_homicide) %>% 
+  head()
+
+homicide_data %>% 
+  filter(city == "Tulsa") %>% 
+  select(city_state, lon, lat) %>% 
+  arrange(city_state) %>% 
+  head()
+```
+By arranging the city homicide data, it is clear that while other cities has more than 200 total_homicide, Tulsa,AL contains only one homicide case,and through web searching, AL doesn't have a city name Tulsa, and the longtidude and latitude shows that Tulsa,AL has the same geographic location as Tulsa, OK. it is likely that the Al was a typo , so I decide to include the data point into Tulsa, OK.
+```{r}
+city_homicide_adj = city_homicide %>%
+  filter(city_state != "Tulsa, AL") %>% 
+  mutate(total_homicide = ifelse(city_state == "Tulsa, OK", total_homicide + 1, total_homicide))
+```
+
 For the city of Baltimore, MD, use the prop.test function to estimate the proportion of homicides that are unsolved; save the output of prop.test as an R object, apply the broom::tidy to this object and pull the estimated proportion and confidence intervals from the resulting tidy dataframe.
 
 ```{r}
-baltimore_homicide = city_homicide %>% 
-  filter(city == "Baltimore")
+baltimore_homicide = city_homicide_adj %>% 
+  filter(city_state == "Baltimore, MD")
 
 prop.test(baltimore_homicide$unsolved_homicide,baltimore_homicide$total_homicide) %>%
     broom::tidy() %>% 
@@ -91,24 +113,25 @@ Now run prop.test for each of the cities in your dataset, and extract both the p
 
 ```{r}
 prop_test = function(x) {
-  city_h = city_homicide %>% 
-    filter(city == x)
+  city_h = city_homicide_adj %>% 
+    filter(city_state == x)
   
   prop.test(city_h$unsolved_homicide,city_h$total_homicide) %>%
     broom::tidy() %>% 
-    mutate(city = x) %>% 
-    select(city, estimate, conf.low, conf.high)
+    mutate(city_state = x) %>% 
+    select(city_state, estimate, conf.low, conf.high)
     
 }
 
-all_city = map_df(city_homicide$city, prop_test)
+all_city = map_df(city_homicide_adj$city_state, prop_test)
 ```
 
 ```{r}
 all_city %>% 
-  ggplot(aes(fct_reorder(city, estimate),estimate)) +
+  #mutate(city_state = fct_reorder(city_state),e)
+  ggplot(aes(fct_reorder(city_state, estimate),estimate)) +
   geom_point() +
-  geom_errorbar(mapping = aes(x = fct_reorder(city, estimate) , ymin = conf.low, ymax = conf.high )) +
+  geom_errorbar(mapping = aes(x = fct_reorder(city_state, estimate) , ymin = conf.low, ymax = conf.high )) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1) ) 
   
 
